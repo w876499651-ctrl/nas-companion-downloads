@@ -8,14 +8,29 @@
 # launches the nas-installer which enters the Xiaoya-style install menu.
 # No Git clone, no Go toolchain, no manual compilation.
 #
+# Download sources: jsDelivr CDN by default (raw.githubusercontent.com
+# returns OpenSSL SSL_ERROR_SYSCALL on some real NAS), with the public
+# GitHub Raw repo as an automatic fallback — no manual env var required.
+#
 # Configuration (env overrides, all optional):
 #   NAS_COMPANION_BASE_URL      base URL of the artifacts
-#                               (default: public delivery repo)
+#                               (default: jsDelivr CDN + GitHub Raw fallback)
 #   NAS_COMPANION_INSTALL_DIR   install directory (default: $HOME/.nas-companion)
 #   NAS_COMPANION_NO_LAUNCH=1   install but do not auto-launch the menu
+#   NAS_COMPANION_KEEP_TMP=1    keep the temp dir (test hook only)
 set -euo pipefail
 
-BASE_URL="${NAS_COMPANION_BASE_URL:-https://raw.githubusercontent.com/w876499651-ctrl/nas-companion-downloads/main}"
+JS_DELIVR_URL="https://cdn.jsdelivr.net/gh/w876499651-ctrl/nas-companion-downloads@main"
+GITHUB_RAW_URL="https://raw.githubusercontent.com/w876499651-ctrl/nas-companion-downloads/main"
+
+if [ -n "${NAS_COMPANION_BASE_URL:-}" ]; then
+  # An explicit user override is used as-is, without extra fallbacks.
+  BASE_URL="$NAS_COMPANION_BASE_URL"
+  FALLBACK_URLS=()
+else
+  BASE_URL="$JS_DELIVR_URL"
+  FALLBACK_URLS=("$GITHUB_RAW_URL")
+fi
 INSTALL_DIR="${NAS_COMPANION_INSTALL_DIR:-$HOME/.nas-companion}"
 
 log() { printf '\033[1;32m[NasCompanion]\033[0m %s\n' "$*"; }
@@ -44,6 +59,24 @@ fetch() { # $1 url  $2 out
   else
     die "需要 curl 或 wget 才能下载。"
   fi
+}
+
+# fetch_any downloads a relative artifact from the primary base URL and,
+# on failure, from each fallback source in order (GitHub Raw by default).
+fetch_any() { # $1 relative path  $2 out
+  local rel="$1" out="$2" url fb
+  url="$BASE_URL/$rel"
+  if fetch "$url" "$out"; then
+    return 0
+  fi
+  for fb in "${FALLBACK_URLS[@]:-}"; do
+    url="$fb/$rel"
+    log "主下载源不可用（$BASE_URL），正在回退到备用源: $fb"
+    if fetch "$url" "$out"; then
+      return 0
+    fi
+  done
+  die "下载失败: $rel（主源 $BASE_URL 与全部备用源均失败）。请检查 NAS 网络后重试。"
 }
 
 # --- 3. SHA-256 verification ---------------------------------------------
@@ -75,8 +108,6 @@ verify_checksum() { # $1 tarball  $2 sumsfile
 detect_os_arch
 
 tarball="nas-companion-linux-${ARCH}.tar.gz"
-url="$BASE_URL/$tarball"
-sums_url="$BASE_URL/SHA256SUMS"
 
 TMP="$(mktemp -d)"
 # MSYS/Git Bash dev boxes mix a native Windows curl with GNU tar; give curl
@@ -86,12 +117,18 @@ if command -v cygpath >/dev/null 2>&1; then
 else
   TMP_NATIVE="$TMP"
 fi
-trap 'rm -rf "$TMP"' EXIT
+# NAS_COMPANION_KEEP_TMP=1 keeps the temp dir (explicit test hook for the
+# automated install.sh verification; normal installs always clean up).
+if [ "${NAS_COMPANION_KEEP_TMP:-0}" = "1" ]; then
+  trap - EXIT
+else
+  trap 'rm -rf "$TMP"' EXIT
+fi
 
-log "下载 $url"
-fetch "$url" "$TMP_NATIVE/$tarball"
-log "下载 $sums_url"
-fetch "$sums_url" "$TMP_NATIVE/SHA256SUMS"
+log "下载 $tarball（主源 $BASE_URL）"
+fetch_any "$tarball" "$TMP_NATIVE/$tarball"
+log "下载 SHA256SUMS"
+fetch_any "SHA256SUMS" "$TMP_NATIVE/SHA256SUMS"
 
 # Verification/extraction use the native (non-backslash) path so sha256sum
 # and tar never escape the file name.
@@ -113,4 +150,13 @@ if [ "${NAS_COMPANION_NO_LAUNCH:-0}" = "1" ]; then
   exit 0
 fi
 cd "$INSTALL_DIR"
+# `curl ... | bash` leaves the exec'd installer with the (already-consumed)
+# curl pipe as stdin, so it would look like a non-interactive run and fail.
+# Reconnect the controlling terminal when present: one single command then
+# goes straight into the interactive menu (no second command needed). When
+# /dev/tty exists but cannot be opened (rare headless run), fall back to a
+# plain exec so the install is not aborted by the redirect.
+if [ -r /dev/tty ] && [ -w /dev/tty ] && exec ./bin/nas-installer < /dev/tty 2>/dev/null; then
+  :
+fi
 exec ./bin/nas-installer

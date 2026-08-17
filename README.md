@@ -33,13 +33,19 @@ nas-companion/
 本目录 4 个文件已发布到公开 Delivery 仓库
 [github.com/w876499651-ctrl/nas-companion-downloads](https://github.com/w876499651-ctrl/nas-companion-downloads)
 （无需 GitHub 登录、无需 Token）。`install.sh` 默认
-`BASE_URL = https://raw.githubusercontent.com/w876499651-ctrl/nas-companion-downloads/main`。
+`BASE_URL = https://cdn.jsdelivr.net/gh/w876499651-ctrl/nas-companion-downloads@main`
+（jsDelivr CDN；`raw.githubusercontent.com` 在部分真实 NAS 上出现
+`OpenSSL SSL_connect: SSL_ERROR_SYSCALL`，故仅作为自动备用源，无需用户
+手工设置环境变量）。
 
-一行安装（Linux，自动检测架构 → 下载 → SHA-256 校验 → 解压 → 启动菜单）：
+一行安装（Linux，自动检测架构 → 下载 → SHA-256 校验 → 解压 → 清屏进入菜单）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/w876499651-ctrl/nas-companion-downloads/main/install.sh | bash
+curl -fsSL https://cdn.jsdelivr.net/gh/w876499651-ctrl/nas-companion-downloads@main/install.sh | bash
 ```
+
+执行后单条命令直接进入可交互 Installer（自动从 `/dev/tty` 读取输入），
+不需要再执行第二条命令。
 
 覆盖安装/指定目录/只装不启动：见下方环境变量。
 
@@ -47,9 +53,10 @@ curl -fsSL https://raw.githubusercontent.com/w876499651-ctrl/nas-companion-downl
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `NAS_COMPANION_BASE_URL` | 公开 Delivery 仓库 raw 地址 | 产物基础 URL |
+| `NAS_COMPANION_BASE_URL` | jsDelivr CDN（raw.githubusercontent.com 自动备用） | 产物基础 URL；显式设置后不追加备用源 |
 | `NAS_COMPANION_INSTALL_DIR` | `$HOME/.nas-companion` | 安装目录 |
 | `NAS_COMPANION_NO_LAUNCH=1` | 关 | 只安装不自动进入菜单 |
+| `NAS_COMPANION_KEEP_TMP=1` | 关 | 保留临时目录（仅自动验证用） |
 
 ## 验证结果（mock 环境，未操作真实 NAS）
 
@@ -64,6 +71,10 @@ curl -fsSL https://raw.githubusercontent.com/w876499651-ctrl/nas-companion-downl
 | OS 守卫 | ✅ 非 Linux 明确报错 |
 | 解压 + 布局 | ✅ bin/nas-installer + hub/Dockerfile 完整 |
 | Installer 进入菜单 | ✅ 同一打包布局的安装器启动渲染完整 Xiaoya 菜单（1-13+0） |
+| jsDelivr 默认下载源 | ✅ 默认走 jsDelivr；raw.githubusercontent.com 仅作自动备用（`verify-downloads-install.sh` mock 验证） |
+| 下载源自动回退 | ✅ jsDelivr 失败自动回退 GitHub Raw，无需用户设置环境变量 |
+| 双源均失败 | ✅ 明确报"下载失败"，不写入任何文件 |
+| 单命令进入交互菜单 | ✅ exec 前自动重接 `/dev/tty`，curl \| bash 一条命令直达菜单（无控制终端时安全降级） |
 
 注：Linux 二进制在本 Windows 开发机无法直接执行（WSL 被安全策略禁用、
 禁止在真实 NAS 执行），菜单启动以同一打包布局的 host 构建实测；
