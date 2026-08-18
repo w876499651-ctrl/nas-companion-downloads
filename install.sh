@@ -15,7 +15,9 @@
 # Configuration (env overrides, all optional):
 #   NAS_COMPANION_BASE_URL      base URL of the artifacts
 #                               (default: jsDelivr CDN + GitHub Raw fallback)
-#   NAS_COMPANION_INSTALL_DIR   install directory (default: $HOME/.nas-companion)
+#   NAS_COMPANION_INSTALL_DIR   install directory
+#                               (default: /opt/nas-companion; script
+#                               elevates via sudo itself when needed)
 #   NAS_COMPANION_NO_LAUNCH=1   install but do not auto-launch the menu
 #   NAS_COMPANION_KEEP_TMP=1    keep the temp dir (test hook only)
 set -euo pipefail
@@ -31,10 +33,37 @@ else
   BASE_URL="$JS_DELIVR_URL"
   FALLBACK_URLS=("$GITHUB_RAW_URL")
 fi
-INSTALL_DIR="${NAS_COMPANION_INSTALL_DIR:-$HOME/.nas-companion}"
+
+# --- install directory + privilege ----------------------------------------
+# On many NAS the user's $HOME (e.g. /home/<user>) does not exist or is not
+# writable (NAS user homes usually live under the data volume), so the old
+# default "$HOME/.nas-companion" failed with a raw "mkdir: Permission
+# denied". The default install directory is /opt/nas-companion (NAS
+# convention). The script elevates via sudo itself when needed, so the
+# one-line command works for a plain user — no manual sudo/env/install-dir
+# required. NAS_COMPANION_INSTALL_DIR stays as an explicit override.
+INSTALL_DIR="${NAS_COMPANION_INSTALL_DIR:-/opt/nas-companion}"
+
+# SUDO is empty when already root (never sudo again); otherwise the script
+# uses sudo for the privileged steps (mkdir / extract / chmod / launch).
+# sudo reads the password from the real controlling terminal itself, which
+# works even though `curl ... | bash` consumed stdin.
+SUDO=""
+if [ "$(id -u)" != "0" ]; then
+  SUDO="sudo"
+fi
+
+# run_priv runs a command with sudo when needed (no-op when already root).
+run_priv() {
+  if [ -n "$SUDO" ]; then
+    $SUDO "$@"
+  else
+    "$@"
+  fi
+}
 
 log() { printf '\033[1;32m[NasCompanion]\033[0m %s\n' "$*"; }
-die() { printf '\033[1;31m[NasCompanion] 错误:\033[0m %s\n' "$*" >&2; exit 1; }
+die() { printf '\033[1;31m[NasCompanion] 错误:\033[0m %b\n' "$*" >&2; exit 1; }
 
 # --- 1. OS / architecture detection -------------------------------------
 detect_os_arch() {
@@ -134,15 +163,18 @@ fetch_any "SHA256SUMS" "$TMP_NATIVE/SHA256SUMS"
 # and tar never escape the file name.
 verify_checksum "$TMP/$tarball" "$TMP/SHA256SUMS"
 
-mkdir -p "$INSTALL_DIR"
+# The privileged steps below (create /opt/nas-companion, extract, chmod,
+# launch) run through run_priv, which uses sudo when the caller is not root.
+log "创建安装目录 $INSTALL_DIR（需要权限时自动使用 sudo）"
+run_priv mkdir -p "$INSTALL_DIR" || die "无法创建安装目录 $INSTALL_DIR（权限不足）。脚本已自动尝试 sudo；若仍未成功，请确认当前用户有 sudo 权限。"
 log "解压到 $INSTALL_DIR"
-tar -xzf "$TMP/$tarball" -C "$INSTALL_DIR" --strip-components=1
+run_priv tar -xzf "$TMP/$tarball" -C "$INSTALL_DIR" --strip-components=1 || die "解压安装包到 $INSTALL_DIR 失败。"
 
 # Guarantee the exec bit regardless of the mode recorded in the tarball
 # (a tarball packed on a platform without POSIX mode bits may carry 0644).
-chmod +x "$INSTALL_DIR/bin/nas-installer" 2>/dev/null || true
-[ -x "$INSTALL_DIR/bin/nas-installer" ] || die "安装包缺少可执行文件 bin/nas-installer。"
-[ -f "$INSTALL_DIR/hub/Dockerfile" ] || die "安装包缺少 Hub 构建上下文 hub/（无法本地构建 V2 Hub）。"
+run_priv chmod +x "$INSTALL_DIR/bin/nas-installer" 2>/dev/null || true
+run_priv test -x "$INSTALL_DIR/bin/nas-installer" || die "安装包缺少可执行文件 bin/nas-installer。"
+run_priv test -f "$INSTALL_DIR/hub/Dockerfile" || die "安装包缺少 Hub 构建上下文 hub/（无法本地构建 V2 Hub）。"
 
 log "安装完成。启动器: $INSTALL_DIR/bin/nas-installer"
 if [ "${NAS_COMPANION_NO_LAUNCH:-0}" = "1" ]; then
@@ -155,8 +187,10 @@ cd "$INSTALL_DIR"
 # Reconnect the controlling terminal when present: one single command then
 # goes straight into the interactive menu (no second command needed). When
 # /dev/tty exists but cannot be opened (rare headless run), fall back to a
-# plain exec so the install is not aborted by the redirect.
-if [ -r /dev/tty ] && [ -w /dev/tty ] && exec ./bin/nas-installer < /dev/tty 2>/dev/null; then
+# plain exec so the install is not aborted by the redirect. The installer
+# runs elevated (sudo) like the steps above, and sudo reads its password
+# from the real terminal itself.
+if [ -r /dev/tty ] && [ -w /dev/tty ] && exec $SUDO ./bin/nas-installer < /dev/tty 2>/dev/null; then
   :
 fi
-exec ./bin/nas-installer
+exec $SUDO ./bin/nas-installer

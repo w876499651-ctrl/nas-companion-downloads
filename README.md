@@ -47,6 +47,11 @@ curl -fsSL https://cdn.jsdelivr.net/gh/w876499651-ctrl/nas-companion-downloads@m
 执行后单条命令直接进入可交互 Installer（自动从 `/dev/tty` 读取输入），
 不需要再执行第二条命令。
 
+默认安装目录为 `/opt/nas-companion`（NAS 惯例；不依赖 `$HOME`，因为部分
+NAS 用户没有可用的 home 目录）。普通用户执行时，脚本会**自动通过 sudo**
+完成创建目录 / 解压 / 赋权 / 启动 Installer（sudo 密码从真实终端输入）；
+已经是 root 时不会重复 sudo。无需在命令中手写 sudo、环境变量或安装路径。
+
 覆盖安装/指定目录/只装不启动：见下方环境变量。
 
 ## install.sh 可配置项（环境变量，均可选）
@@ -54,7 +59,7 @@ curl -fsSL https://cdn.jsdelivr.net/gh/w876499651-ctrl/nas-companion-downloads@m
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `NAS_COMPANION_BASE_URL` | jsDelivr CDN（raw.githubusercontent.com 自动备用） | 产物基础 URL；显式设置后不追加备用源 |
-| `NAS_COMPANION_INSTALL_DIR` | `$HOME/.nas-companion` | 安装目录 |
+| `NAS_COMPANION_INSTALL_DIR` | `/opt/nas-companion`（脚本自动 sudo） | 安装目录（显式覆盖） |
 | `NAS_COMPANION_NO_LAUNCH=1` | 关 | 只安装不自动进入菜单 |
 | `NAS_COMPANION_KEEP_TMP=1` | 关 | 保留临时目录（仅自动验证用） |
 
@@ -75,6 +80,8 @@ curl -fsSL https://cdn.jsdelivr.net/gh/w876499651-ctrl/nas-companion-downloads@m
 | 下载源自动回退 | ✅ jsDelivr 失败自动回退 GitHub Raw，无需用户设置环境变量 |
 | 双源均失败 | ✅ 明确报"下载失败"，不写入任何文件 |
 | 单命令进入交互菜单 | ✅ exec 前自动重接 `/dev/tty`，curl \| bash 一条命令直达菜单（无控制终端时安全降级） |
+| 默认安装目录 `/opt/nas-companion` | ✅ HOME 不存在/不可写的 NAS 用户也可装（mock 验证） |
+| 自动 sudo 提权 | ✅ 非 root 自动 sudo 完成 mkdir/解压/chmod/启动；root 时不重复 sudo（mock 验证） |
 
 注：Linux 二进制在本 Windows 开发机无法直接执行（WSL 被安全策略禁用、
 禁止在真实 NAS 执行），菜单启动以同一打包布局的 host 构建实测；
