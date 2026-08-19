@@ -1,20 +1,34 @@
 #!/usr/bin/env bash
 # Nas Companion V2 — one-line NAS installer.
 #
-#   curl -fsSL <BASE_URL>/install.sh | bash
+#   curl -fsSL https://cdn.jsdelivr.net/gh/w876499651-ctrl/nas-companion-downloads@v1.0.0/install.sh | bash
 #
 # Automatically: detects the Linux architecture, downloads the matching
 # Nas Companion package, verifies its SHA-256 checksum, extracts it, and
 # launches the nas-installer which enters the Xiaoya-style install menu.
 # No Git clone, no Go toolchain, no manual compilation.
 #
-# Download sources: jsDelivr CDN by default (raw.githubusercontent.com
-# returns OpenSSL SSL_ERROR_SYSCALL on some real NAS), with the public
-# GitHub Raw repo as an automatic fallback — no manual env var required.
+# --- Immutable artifact ref (critical for delivery consistency) ---
+# ALL artifacts (tarball + SHA256SUMS) are downloaded from the SAME
+# immutable git tag defined by ARTIFACT_REF. This prevents the jsDelivr
+# @main mixed-cache problem where a new SHA256SUMS could be paired with
+# an old tarball from a different commit. Every download channel
+# (primary and fallbacks) uses this exact same ref — switching from
+# primary to fallback can never mix versions.
+#
+# Download channels (all use the same ARTIFACT_REF):
+#   1. cdn.jsdelivr.net      — jsDelivr anycast CDN (primary)
+#   2. gcore.jsdelivr.net    — jsDelivr G-Core backend (trusted second
+#                              channel; different CDN provider, bypasses
+#                              anycast routing issues on some NAS)
+#   3. raw.githubusercontent.com — GitHub Raw (last resort; known
+#                              unstable on some NAS with OpenSSL
+#                              SSL_ERROR_SYSCALL, but safe with immutable ref)
 #
 # Configuration (env overrides, all optional):
-#   NAS_COMPANION_BASE_URL      base URL of the artifacts
-#                               (default: jsDelivr CDN + GitHub Raw fallback)
+#   NAS_COMPANION_BASE_URL      base URL of the artifacts (must include
+#                               the immutable ref, e.g. ...@v1.0.0);
+#                               when set, no fallbacks are added
 #   NAS_COMPANION_INSTALL_DIR   install directory
 #                               (default: /opt/nas-companion; script
 #                               elevates via sudo itself when needed)
@@ -22,16 +36,26 @@
 #   NAS_COMPANION_KEEP_TMP=1    keep the temp dir (test hook only)
 set -euo pipefail
 
-JS_DELIVR_URL="https://cdn.jsdelivr.net/gh/w876499651-ctrl/nas-companion-downloads@main"
-GITHUB_RAW_URL="https://raw.githubusercontent.com/w876499651-ctrl/nas-companion-downloads/main"
+# ============================================================================
+# Immutable artifact ref — THE single source of truth for the version.
+# tarball and SHA256SUMS are ALWAYS downloaded from this same ref.
+# To release a new version: update this value, commit, then run
+# scripts/release.sh <new-version>.
+# ============================================================================
+ARTIFACT_REF="v1.0.0"
+REPO="w876499651-ctrl/nas-companion-downloads"
 
 if [ -n "${NAS_COMPANION_BASE_URL:-}" ]; then
   # An explicit user override is used as-is, without extra fallbacks.
   BASE_URL="$NAS_COMPANION_BASE_URL"
   FALLBACK_URLS=()
 else
-  BASE_URL="$JS_DELIVR_URL"
-  FALLBACK_URLS=("$GITHUB_RAW_URL")
+  # All channels use the SAME ARTIFACT_REF — no mixed versions possible.
+  BASE_URL="https://cdn.jsdelivr.net/gh/${REPO}@${ARTIFACT_REF}"
+  FALLBACK_URLS=(
+    "https://gcore.jsdelivr.net/gh/${REPO}@${ARTIFACT_REF}"
+    "https://raw.githubusercontent.com/${REPO}/${ARTIFACT_REF}"
+  )
 fi
 
 # --- install directory + privilege ----------------------------------------
@@ -91,7 +115,8 @@ fetch() { # $1 url  $2 out
 }
 
 # fetch_any downloads a relative artifact from the primary base URL and,
-# on failure, from each fallback source in order (GitHub Raw by default).
+# on failure, from each fallback source in order. EVERY source embeds the
+# same ARTIFACT_REF, so a primary/fallback switch can never mix versions.
 fetch_any() { # $1 relative path  $2 out
   local rel="$1" out="$2" url fb
   url="$BASE_URL/$rel"
@@ -99,8 +124,9 @@ fetch_any() { # $1 relative path  $2 out
     return 0
   fi
   for fb in "${FALLBACK_URLS[@]:-}"; do
+    [ -n "$fb" ] || continue
+    log "主下载源不可用，正在回退到备用源: $fb"
     url="$fb/$rel"
-    log "主下载源不可用（$BASE_URL），正在回退到备用源: $fb"
     if fetch "$url" "$out"; then
       return 0
     fi
@@ -137,6 +163,8 @@ verify_checksum() { # $1 tarball  $2 sumsfile
 detect_os_arch
 
 tarball="nas-companion-linux-${ARCH}.tar.gz"
+
+log "使用不可变产物版本: $ARTIFACT_REF（tarball 与 SHA256SUMS 均从此版本获取，禁止混合）"
 
 TMP="$(mktemp -d)"
 # MSYS/Git Bash dev boxes mix a native Windows curl with GNU tar; give curl
