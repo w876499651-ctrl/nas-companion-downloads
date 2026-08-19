@@ -97,7 +97,7 @@ assert "Matched tarball + SHA exits zero (accepted)" "[ $RC -eq 0 ]"
 echo ""
 echo "=== Test 4: Mixed-cache simulation — same ref passes, mixed refs fail ==="
 # Simulate two versions: vA and vB, each self-consistent
-mkdir -p "$TMPDIR/vA" "$TMPDIR/vB"
+mkdir -p "$TMPDIR/vA" "$TMPDIR/vB" "$TMPDIR/mix"
 echo "version A binary content" > "$TMPDIR/vA/pkg.tar.gz"
 VA_HASH=$(sha256_of "$TMPDIR/vA/pkg.tar.gz")
 echo "${VA_HASH}  pkg.tar.gz" > "$TMPDIR/vA/SHA256SUMS"
@@ -106,18 +106,29 @@ VB_HASH=$(sha256_of "$TMPDIR/vB/pkg.tar.gz")
 echo "${VB_HASH}  pkg.tar.gz" > "$TMPDIR/vB/SHA256SUMS"
 
 # Consistent: both from vA (what immutable ref guarantees)
-(cd "$TMPDIR/vA" && sha256_of pkg.tar.gz >/dev/null && sha256sum -c SHA256SUMS >/dev/null 2>&1); RC=$?
+set +e
+(cd "$TMPDIR/vA" && sha256sum -c SHA256SUMS >/dev/null 2>&1)
+RC=$?
+set -e
 assert "Consistent vA (both files from same ref) passes SHA check" "[ $RC -eq 0 ]"
 
 # Consistent: both from vB
-(cd "$TMPDIR/vB" && sha256sum -c SHA256SUMS >/dev/null 2>&1); RC=$?
+set +e
+(cd "$TMPDIR/vB" && sha256sum -c SHA256SUMS >/dev/null 2>&1)
+RC=$?
+set -e
 assert "Consistent vB (both files from same ref) passes SHA check" "[ $RC -eq 0 ]"
 
 # MIXED: tarball from vA, SHA256SUMS from vB (this is exactly what @main
-# mixed cache produced — and what immutable ref design makes impossible)
-cp "$TMPDIR/vA/pkg.tar.gz" "$TMPDIR/mix_pkg.tar.gz"
-cp "$TMPDIR/vB/SHA256SUMS" "$TMPDIR/mix_SHA256SUMS"
-(cd "$TMPDIR" && sha256sum -c mix_SHA256SUMS >/dev/null 2>&1); RC=$?
+# mixed cache produced — and what immutable ref design makes impossible).
+# Use matching filename pkg.tar.gz so failure is a hash mismatch, not
+# file-not-found.
+cp "$TMPDIR/vA/pkg.tar.gz" "$TMPDIR/mix/pkg.tar.gz"
+cp "$TMPDIR/vB/SHA256SUMS" "$TMPDIR/mix/SHA256SUMS"
+set +e
+(cd "$TMPDIR/mix" && sha256sum -c SHA256SUMS >/dev/null 2>&1)
+RC=$?
+set -e
 assert "MIXED (vA tarball + vB SHA) FAILS SHA check (correctly blocked)" "[ $RC -ne 0 ]"
 
 echo ""
@@ -129,8 +140,11 @@ echo "=== Test 5: Design proof — install.sh requests both artifacts from same 
 FETCH_CALLS=$(grep -c 'fetch_any' "$INSTALL_SH" || true)
 assert "install.sh calls fetch_any for both tarball and SHA256SUMS (>=2)" "[ $FETCH_CALLS -ge 2 ]"
 # fetch_any only uses BASE_URL and FALLBACK_URLS — no per-file ref override
-FETCH_USES_VARS=$(grep -A5 '^fetch_any()' "$INSTALL_SH" | grep -cE 'BASE_URL|FALLBACK_URLS' || true)
-assert "fetch_any uses only BASE_URL/FALLBACK_URLS (no per-file ref)" "[ $FETCH_USES_VARS -ge 2 ]"
+FETCH_BODY=$(sed -n '/^fetch_any()/,/^}/p' "$INSTALL_SH")
+FETCH_HAS_BASE=$(echo "$FETCH_BODY" | grep -c 'BASE_URL' || true)
+FETCH_HAS_FALLBACK=$(echo "$FETCH_BODY" | grep -c 'FALLBACK_URLS' || true)
+assert "fetch_any uses BASE_URL (primary channel)" "[ $FETCH_HAS_BASE -ge 1 ]"
+assert "fetch_any uses FALLBACK_URLS (fallback channels)" "[ $FETCH_HAS_FALLBACK -ge 1 ]"
 
 echo ""
 echo "========================================="
