@@ -5,7 +5,7 @@
 - **Source repository**: w876499651-ctrl/nas-companion
 - **Source branch**: codex/hub-foundation
 - **Source commit**: c8060af (Merge PR #75 - install progress)
-- **Delivery commit**: (to be filled after commit)
+- **Delivery commit**: see git tag `v2.0.3`
 - **Delivery tag**: v2.0.3
 - **Build date**: 2026-08-20
 - **amd64 SHA256**: be2c402e954f401af2d646cd8d66a32a4ae4aabe0d41a53ddb9a83a4c8bad7e0
