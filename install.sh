@@ -42,7 +42,7 @@ set -euo pipefail
 # To release a new version: update this value, commit, then run
 # scripts/release.sh <new-version>.
 # ============================================================================
-ARTIFACT_REF="v2.0.1"
+ARTIFACT_REF="v2.0.2"
 REPO="w876499651-ctrl/nas-companion-downloads"
 
 if [ -n "${NAS_COMPANION_BASE_URL:-}" ]; then
@@ -206,4 +206,29 @@ if [ "${NAS_COMPANION_NO_LAUNCH:-0}" = "1" ]; then
 fi
 
 log "启动 Nas Companion Installer..."
-exec run_priv "$INSTALL_DIR/bin/nas-installer"
+
+# --- launch: exec the real binary (never exec a shell function) ---
+# `exec run_priv ...` is a bug: exec replaces the shell with an external
+# command, but run_priv is a shell function, so bash reports
+# "exec: run_priv: not found". We must exec the real binary directly.
+#
+# curl | bash consumed stdin (the script pipe), so the interactive
+# installer would have no controlling terminal for menu input. Reconnect
+# /dev/tty when available (Issue #61). sudo reads its password from the
+# real terminal, which also requires /dev/tty.
+INSTALLER_BIN="$INSTALL_DIR/bin/nas-installer"
+
+if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+  if [ -n "$SUDO" ]; then
+    exec sudo "$INSTALLER_BIN" </dev/tty
+  else
+    exec "$INSTALLER_BIN" </dev/tty
+  fi
+else
+  # Headless / no controlling terminal: exec without tty redirection.
+  if [ -n "$SUDO" ]; then
+    exec sudo "$INSTALLER_BIN"
+  else
+    exec "$INSTALLER_BIN"
+  fi
+fi
