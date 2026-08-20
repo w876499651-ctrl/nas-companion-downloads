@@ -42,7 +42,7 @@ set -euo pipefail
 # To release a new version: update this value, commit, then run
 # scripts/release.sh <new-version>.
 # ============================================================================
-ARTIFACT_REF="v2.0.2"
+ARTIFACT_REF="v2.0.3"
 REPO="w876499651-ctrl/nas-companion-downloads"
 
 if [ -n "${NAS_COMPANION_BASE_URL:-}" ]; then

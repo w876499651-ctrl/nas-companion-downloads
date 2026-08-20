@@ -1,18 +1,20 @@
 # Nas Companion Delivery Provenance
 
-## v2.0.2 (CURRENT - valid immutable release)
+## v2.0.3 (CURRENT - final immutable release candidate)
 
 - **Source repository**: w876499651-ctrl/nas-companion
 - **Source branch**: codex/hub-foundation
 - **Source commit**: c8060af (Merge PR #75 - install progress)
-- **Delivery tag**: v2.0.2
+- **Delivery commit**: (to be filled after commit)
+- **Delivery tag**: v2.0.3
 - **Build date**: 2026-08-20
 - **amd64 SHA256**: be2c402e954f401af2d646cd8d66a32a4ae4aabe0d41a53ddb9a83a4c8bad7e0
 - **arm64 SHA256**: 7e9669bd529fe5cf08ecfecaf9f362d58ab3d0cddadbf5c865c5ad0a6a153dc6
 - **Go version**: 1.26.5
 - **Build command**: CGO_ENABLED=0 go build -trimpath
-- **install.sh encoding**: UTF-8 no BOM, verified
-- **Fix**: Replaced `exec run_priv "$INSTALLER_BIN"` (bug: exec cannot run shell function, causes "exec: run_priv: not found") with direct `exec sudo "$INSTALLER_BIN" </dev/tty` / `exec "$INSTALLER_BIN" </dev/tty`, preserving curl|bash TTY reconnection (Issue #61).
+- **install.sh encoding**: UTF-8 no BOM
+- **Launch fix**: `exec sudo "$INSTALLER_BIN" </dev/tty` / `exec "$INSTALLER_BIN" </dev/tty` (preserves curl|bash TTY reconnection, Issue #61)
+- **Tag history**: v2.0.3 is a brand-new tag, never deleted, never moved, never reused.
 
 ### Included fixes
 - #66/#67: Installer single-instance flock lock
@@ -21,6 +23,14 @@
 - #70/#71: Container restart policy (unless-stopped)
 - #72/#73: Menu service status + health latency
 - #74/#75: Install progress stage labels
+
+## v2.0.2 (FUNCTIONALLY_PASS_BUT_TAG_MOVED - not final)
+
+- **Status**: Code functionally correct and real-NAS one-line install verified PASS, but the tag was deleted and recreated once during release (first push pointed to wrong commit due to a PowerShell variable-expansion commit failure). This violates the immutable-ref guarantee, so v2.0.2 cannot be used as the final immutable release.
+- **Delivery commit**: c61adc3
+- **Source commit**: c8060af
+- **Fix**: Same launch fix as v2.0.3.
+- **Action**: Retained as historical record. Never deleted, never moved again.
 
 ## v2.0.1 (INVALID - do not use)
 
